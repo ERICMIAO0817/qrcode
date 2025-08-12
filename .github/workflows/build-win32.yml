@@ -13,17 +13,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Detect dependency file
+      - name: Detect dependency file (prefer pip)
         id: dep
         shell: bash
         run: |
-          if [ -f environment.yml ]; then echo "file=conda" >> $GITHUB_OUTPUT; exit 0; fi
           if [ -f requirements.txt ]; then echo "file=pip" >> $GITHUB_OUTPUT; exit 0; fi
+          if [ -f environment.yml ]; then echo "file=conda" >> $GITHUB_OUTPUT; exit 0; fi
           echo "file=none" >> $GITHUB_OUTPUT
 
       # --- Conda path (preferred if environment.yml is present) ---
       - name: Setup Miniconda (32-bit)
         if: ${{ steps.dep.outputs.file == 'conda' }}
+        id: setup_conda
+        continue-on-error: true
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-activate-base: false
@@ -32,7 +34,7 @@ jobs:
           architecture: x86
 
       - name: Show Conda env info
-        if: ${{ steps.dep.outputs.file == 'conda' }}
+        if: ${{ steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'success' }}
         shell: bash
         run: |
           conda info -a
@@ -40,32 +42,36 @@ jobs:
           python -c "import platform,struct;print(platform.python_version(), platform.architecture(), struct.calcsize('P')*8)"
 
       - name: Install PyInstaller (conda env)
-        if: ${{ steps.dep.outputs.file == 'conda' }}
+        if: ${{ steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'success' }}
         shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
 
+      - name: Conda setup failed — fallback to pip
+        if: ${{ steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure' }}
+        run: echo "Falling back to pip path due to Conda setup failure."
+
       # --- Pip path (fallback if requirements.txt is present) ---
       - name: Setup 32-bit Python
-        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' }}
+        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' || (steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure') }}
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           architecture: 'x86'
 
       - name: Show Python info (pip path)
-        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' }}
+        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' || (steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure') }}
         run: python -c "import platform,struct;print(platform.python_version(), platform.architecture(), struct.calcsize('P')*8)"
 
       - name: Install dependencies from requirements.txt
-        if: ${{ steps.dep.outputs.file == 'pip' }}
+        if: ${{ steps.dep.outputs.file == 'pip' || (steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure') }}
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Install PyInstaller (pip path)
-        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' }}
+        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' || (steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure') }}
         run: pip install pyinstaller
 
       # --- Optional: UPX for better compression ---
@@ -77,13 +83,13 @@ jobs:
 
       # --- Build using existing spec ---
       - name: Build (conda)
-        if: ${{ steps.dep.outputs.file == 'conda' }}
+        if: ${{ steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'success' }}
         shell: bash
         run: |
           pyinstaller --clean -y main.spec
 
       - name: Build (pip)
-        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' }}
+        if: ${{ steps.dep.outputs.file == 'pip' || steps.dep.outputs.file == 'none' || (steps.dep.outputs.file == 'conda' && steps.setup_conda.outcome == 'failure') }}
         run: pyinstaller --clean -y main.spec
 
       - name: Upload artifact
