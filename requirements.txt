@@ -1,6 +1,6 @@
 altgraph==0.17.4
 attrs==25.1.0
-certifi @ file:///private/var/folders/sy/f16zz6x50xz3113nwtb9bvq00000gp/T/abs_2emnmf1qow/croot/certifi_1690232232440/work/certifi
+certifi==2023.7.22
 charset-normalizer==3.4.1
 click==8.1.7
 et-xmlfile==1.1.0
